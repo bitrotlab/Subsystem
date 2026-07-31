@@ -1,0 +1,16 @@
+{
+  "Entities": {
+    "G_Baserunner_MP": {
+      "UnitAttributes": {
+        "MaxHealth": 9999
+      }
+    },
+    "C_Escort_MP": {
+      "WeaponAttributes": {
+        "C_Escort_Weapon_G2G_MP": {
+          "BaseDamagePerRound": 40
+        }
+      }
+    }
+  }
+}
