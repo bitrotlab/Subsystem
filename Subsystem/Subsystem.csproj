@@ -56,6 +56,7 @@
     <Compile Include="Patch\WeaponModifierInfoPatch.cs" />
     <Compile Include="Wrappers\AbilityAttributesWrapper.cs" />
     <Compile Include="AttributeLoader.cs" />
+    <Compile Include="EntityTypeDumper.cs" />
     <Compile Include="Patch\AttributesPatch.cs" />
     <Compile Include="Wrappers\AttributeBuffSetWrapper.cs" />
     <Compile Include="Wrappers\AttributeBuffWrapper.cs" />

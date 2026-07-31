@@ -27,6 +27,22 @@ namespace Subsystem
 
         public void LoadAttributes(EntityTypeCollection entityTypeCollection)
         {
+            // Written before the patch is read, and in its own try/catch, so the name reference
+            // is still produced when patch.json is missing or malformed -- that is exactly when
+            // it is most useful.
+            try
+            {
+                var dumpPath = Path.Combine(Application.dataPath, "Subsystem.entities.log");
+                using (var dumpWriter = new StreamWriter(dumpPath))
+                {
+                    EntityTypeDumper.Dump(entityTypeCollection, dumpWriter);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[SUBSYSTEM] Error writing entity type dump: {e}");
+            }
+
             try
             {
                 var jsonPath = Path.Combine(Application.dataPath, "patch.json");
