@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tools:
+    name: Build tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build SubsystemPatcher
+        run: dotnet build SubsystemPatcher/SubsystemPatcher.csproj -c Release --nologo
+
+      - name: Build SubsystemLint
+        run: dotnet build SubsystemLint/SubsystemLint.csproj -c Release --nologo
+
+      # The mod assembly references BBI.Core, BBI.Game.Data and UnityEngine from an installed
+      # copy of the game. Those cannot be redistributed, so build/Subsystem.Sdk.csproj is not
+      # buildable on CI -- it is built locally against the game. See docs/building.md.
+      - name: Check the mod project is still well-formed
+        run: |
+          dotnet msbuild build/Subsystem.Sdk.csproj -t:CheckManagedDir -p:ManagedDir=/nonexistent \
+            -nologo 2>&1 | tee out.txt || true
+          grep -q "BBI.Core.dll not found in ManagedDir" out.txt \
+            || { echo "expected the ManagedDir guard to fire"; exit 1; }

@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.5.0), for a dry run without tagging'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.version || '0.0.0-dev' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Portable framework-dependent builds: one set of files that runs on Windows, Linux and
+      # macOS with the .NET 8+ runtime, which anyone building the mod already has.
+      - name: Publish SubsystemPatcher
+        run: >
+          dotnet publish SubsystemPatcher/SubsystemPatcher.csproj -c Release
+          -p:DebugType=none -p:Version=${{ steps.version.outputs.value }}
+          -o staging/SubsystemPatcher --nologo
+
+      - name: Publish SubsystemLint
+        run: >
+          dotnet publish SubsystemLint/SubsystemLint.csproj -c Release
+          -p:DebugType=none -p:Version=${{ steps.version.outputs.value }}
+          -o staging/SubsystemLint --nologo
+
+      - name: Assemble the package
+        run: |
+          cp README.md LICENSE.md patch.example.json staging/
+          cp -r docs staging/docs
+          # Keep the folder name: build/Subsystem.Sdk.csproj globs ../Subsystem/**/*.cs, so the
+          # archive has to preserve that layout for users to build the mod from it.
+          cp -r Subsystem staging/Subsystem
+          cp -r build staging/build
+          rm -rf staging/build/bin staging/build/obj staging/Subsystem/bin staging/Subsystem/obj
+          cd staging
+          zip -r "../Subsystem-tools-${{ steps.version.outputs.value }}.zip" . -x '*.pdb'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Subsystem-tools-${{ steps.version.outputs.value }}
+          path: Subsystem-tools-${{ steps.version.outputs.value }}.zip
+
+      - name: Create the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "Subsystem-tools-${{ steps.version.outputs.value }}.zip" \
+            --title "Subsystem ${{ steps.version.outputs.value }}" \
+            --notes "$(cat <<'NOTES'
+          Install with `SubsystemPatcher`, which patches your own copy of `BBI.Unity.Game.dll`
+          rather than replacing it. See `README.md` in the archive.
+
+          Requires the .NET 8 SDK or newer. The mod assembly, `Subsystem.dll`, is built locally
+          against your installed game — its references cannot be redistributed:
+
+              dotnet build build/Subsystem.Sdk.csproj -c Release
+              cp build/bin/Release/net35/Subsystem.dll "<...>/Deserts of Kharak/Data/Managed/"
+              dotnet SubsystemPatcher/SubsystemPatcher.dll
+
+          Re-run the patcher after every game update.
+          NOTES
+          )"
