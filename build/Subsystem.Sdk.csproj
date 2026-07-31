@@ -1,0 +1,80 @@
+<!--
+  SDK-style build of the Subsystem mod assembly.
+
+  The original Subsystem/Subsystem.csproj is a legacy (pre-SDK) project with bare
+  <Reference> items and no HintPaths: it only ever built on a machine where Visual Studio
+  happened to resolve BBI.Core / BBI.Game.Data / UnityEngine on its own. This project
+  builds the same sources with nothing but the .NET SDK, on Linux, macOS or Windows, by
+  referencing the assemblies straight out of the game install.
+
+    dotnet build build/Subsystem.Sdk.csproj -c Release
+    dotnet build build/Subsystem.Sdk.csproj -c Release -p:ManagedDir="/path/to/Deserts of Kharak/Data/Managed"
+
+  Output: build/bin/Release/net35/Subsystem.dll
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net35</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Subsystem</AssemblyName>
+    <RootNamespace>Subsystem</RootNamespace>
+    <!-- Sources live in ../Subsystem and are listed explicitly below. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- The repo carries its own AssemblyInfo.cs. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Where the game's managed assemblies live. Override with -p:ManagedDir=... -->
+  <PropertyGroup>
+    <_Common>steamapps/common/Deserts of Kharak/Data/Managed</_Common>
+
+    <ManagedDir Condition="'$(ManagedDir)' == '' AND Exists('$(HOME)/.var/app/com.valvesoftware.Steam/data/Steam/$(_Common)')"
+                >$(HOME)/.var/app/com.valvesoftware.Steam/data/Steam/$(_Common)</ManagedDir>
+    <ManagedDir Condition="'$(ManagedDir)' == '' AND Exists('$(HOME)/.steam/steam/$(_Common)')"
+                >$(HOME)/.steam/steam/$(_Common)</ManagedDir>
+    <ManagedDir Condition="'$(ManagedDir)' == '' AND Exists('$(HOME)/.local/share/Steam/$(_Common)')"
+                >$(HOME)/.local/share/Steam/$(_Common)</ManagedDir>
+    <ManagedDir Condition="'$(ManagedDir)' == '' AND Exists('$(HOME)/Library/Application Support/Steam/$(_Common)')"
+                >$(HOME)/Library/Application Support/Steam/$(_Common)</ManagedDir>
+    <ManagedDir Condition="'$(ManagedDir)' == '' AND Exists('C:/Program Files (x86)/Steam/$(_Common)')"
+                >C:/Program Files (x86)/Steam/$(_Common)</ManagedDir>
+  </PropertyGroup>
+
+  <Target Name="CheckManagedDir" BeforeTargets="BeforeBuild">
+    <Error Condition="'$(ManagedDir)' == ''"
+           Text="Could not find the game's Data/Managed folder. Pass it explicitly: -p:ManagedDir=&quot;/path/to/Deserts of Kharak/Data/Managed&quot;" />
+    <Error Condition="!Exists('$(ManagedDir)/BBI.Core.dll')"
+           Text="BBI.Core.dll not found in ManagedDir '$(ManagedDir)'." />
+    <Message Importance="high" Text="Building against game assemblies in: $(ManagedDir)" />
+  </Target>
+
+  <ItemGroup>
+    <!-- Reference assemblies for .NET Framework 3.5, so this builds without Windows/VS. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net35" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Subsystem/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Private=false: never copy the game's own assemblies into the output. -->
+    <Reference Include="BBI.Core">
+      <HintPath>$(ManagedDir)/BBI.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BBI.Game.Data">
+      <HintPath>$(ManagedDir)/BBI.Game.Data.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(ManagedDir)/UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
