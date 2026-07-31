@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>LatestMajor</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SubsystemLint</AssemblyName>
+    <RootNamespace>SubsystemLint</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Same install-detection logic as the patcher; kept in one place. -->
+    <Compile Include="../SubsystemPatcher/GameLocator.cs" Link="GameLocator.cs" />
+  </ItemGroup>
+
+</Project>
