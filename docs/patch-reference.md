@@ -31,6 +31,13 @@ This is what `SubsystemLint` is for. Run it before you launch.
 Names behave differently: an entity or component name that does not exist skips only that entry
 and is reported in `Subsystem.log`.
 
+### Comments are allowed, trailing commas are not
+
+The LitJson bundled in `BBI.Core.dll` skips `//` line comments and `/* */` block comments, so
+you can annotate `patch.json` freely — `patch.example.json` does. It does **not** accept a
+trailing comma; one throws `Invalid token '125' in input string`, which discards the whole file
+exactly like an unknown key does. `SubsystemLint` applies both rules.
+
 ### Lists are keyed by index, not by name
 
 Five properties are lists, and their keys must be consecutive integers as strings:

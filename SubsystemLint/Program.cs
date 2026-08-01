@@ -64,7 +64,10 @@ internal static class Program
         try
         {
             doc = JsonDocument.Parse(File.ReadAllText(patchPath),
-                new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+                // Match what the game's LitJson accepts, or this reports a clean bill of health
+                // on a file the game throws out. It skips // and /* */ comments, and it rejects
+                // a trailing comma with "Invalid token '125' in input string".
+                new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = false });
         }
         catch (JsonException e)
         {

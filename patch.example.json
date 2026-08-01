@@ -1,14 +1,87 @@
+// Subsystem example patch. Copy to "Deserts of Kharak/Data/patch.json".
+//
+// Comments are fine -- the game's JSON parser skips // and /* */. A trailing comma is not:
+// it throws, and one throw anywhere discards the WHOLE file. So does one misspelled key.
+// Run SubsystemLint before you launch and it will tell you which.
+//
+// Names are case-sensitive and come from Data/Subsystem.entities.log, which the mod rewrites
+// on every game start from what your install actually loaded. Campaign and multiplayer are
+// separate entity types: C_HAC in the campaign, C_HAC_MP in skirmish and multiplayer.
 {
+  // ---------------------------------------------------------------------------------------
+  // Entities -- patches the shared unit templates. Applies to EVERY player fielding the unit.
+  // Reaches every property Subsystem knows about. See docs/patch-reference.md.
+  // ---------------------------------------------------------------------------------------
   "Entities": {
+
     "G_Baserunner_MP": {
       "UnitAttributes": {
         "MaxHealth": 9999
       }
     },
+
     "C_Escort_MP": {
+      // Weapons here are keyed by the weapon COMPONENT name, as printed in the entity dump.
+      // Commander buffs below key on something else -- see the note there.
       "WeaponAttributes": {
         "C_Escort_Weapon_G2G_MP": {
           "BaseDamagePerRound": 40
+        }
+      }
+    }
+  },
+
+  // ---------------------------------------------------------------------------------------
+  // Commanders -- changes that apply to ONE player's units and leave everyone else's alone.
+  // Uses the game's own attribute-buff system, the one research upgrades run on, so these
+  // survive loading a save. In exchange only the attributes the engine can buff are
+  // reachable; docs/patch-reference.md lists all of them.
+  //
+  // Keyed by commander ID, a number. Subsystem.log prints the roster at every match start:
+  //
+  //     local commander: 1
+  //     first enemy CPU commander: 3
+  //       commander 1: COALITION (team 1)
+  //       commander 3: SIIDIM (team 3)
+  //
+  // Key on that number, never on "whoever is playing" -- in multiplayer that would resolve
+  // differently on each machine and desync the game.
+  // ---------------------------------------------------------------------------------------
+  "Commanders": {
+
+    "1": {
+      "EntityTypeBuffs": {
+
+        "C_Escort_MP": {
+          // Buffs is an indexed list: keys "0", "1", "2", ... with no gaps.
+          // Mode is Add, AddPercent, Set or SetAndHold. Value is always a whole number, so
+          // express a fraction as a percentage: AddPercent -60 leaves you at x0.4.
+          "Buffs": {
+            "0": { "Attribute": "Unit_MaxHealth", "Mode": "Set", "Value": 5000 },
+            "1": { "Attribute": "Unit_DamageReceivedMultiplier", "Mode": "AddPercent", "Value": -60 },
+            "2": { "Attribute": "UnitDynamics_MaxSpeed", "Mode": "AddPercent", "Value": 25 },
+
+            // For weapon and range buffs, "Name" is the weapon's LOADOUT ID, which is not the
+            // component name the Entities section uses -- C_Escort_Weapon_G2G_MP has the ID
+            // "DEFAULT". The entity dump prints it as "weapon ID (for commander buffs)".
+            // Leave Name out to hit every weapon on the unit.
+            "3": { "Attribute": "UnitWeapon_BaseDamagePerRound", "Name": "DEFAULT", "Mode": "Set", "Value": 200 },
+
+            // A range band can only be buffed if the weapon already has it. Buffs cannot
+            // create one; the Entities section can.
+            "4": { "Attribute": "WeaponRange_DistanceLong", "Name": "DEFAULT", "Mode": "AddPercent", "Value": 50 }
+          }
+        },
+
+        // UseAsPrefix matches every entity type whose name starts with the key, so this is
+        // "every Coalition multiplayer unit". UnitClass narrows it further; omit for no filter.
+        "C_": {
+          "UseAsPrefix": true,
+          "UnitClass": "Air",
+          "ClassOperator": "Or",
+          "Buffs": {
+            "0": { "Attribute": "Unit_Armour", "Mode": "Add", "Value": 2 }
+          }
         }
       }
     }
