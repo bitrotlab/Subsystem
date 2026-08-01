@@ -277,6 +277,57 @@ key on the local player; that is why there is no "me" and no name-based lookup h
 Giving one commander better units is, of course, an unfair game. This is aimed at single-player
 and at skirmishes against the AI.
 
+### AddAbilities — giving units an ability they do not ship with
+
+Buffs can only tune an ability a unit already has. `AddAbilities` copies a whole ability onto one
+commander's units, which is how you give a unit self-repair:
+
+```json
+"Commanders": {
+  "1": {
+    "AddAbilities": {
+      "C_": {
+        "UseAsPrefix": true,
+        "Abilities": {
+          "0": { "From": "Ability_C_Battlecruiser_Regen" }
+        }
+      }
+    }
+  }
+}
+```
+
+`From` is the entity type name of the ability to copy — abilities are entity types in their own
+right, and `Subsystem.entities.log` lists each one with what it actually does:
+
+```
+Ability_C_Battlecruiser_Regen
+    AbilityAttributesData: Ability_C_Battlecruiser_Regen
+        type: ApplyStatusEffect   targeting: Passive   cooldown: 0s   warmup: 0s
+        applies status effect: Regen_Salvager_StatusEffect   lifetime: Permanent
+        health over time: 24 per 1000ms, Heal, id "Passive_Regeneration"
+```
+
+Matching works exactly as it does for `EntityTypeBuffs` — `UseAsPrefix`, `UnitClass` and
+`ClassOperator` all behave the same way.
+
+**`targeting: Passive` is the flag that matters.** `UnitManager.ActivatePassiveAbilities` fires
+passive abilities as a unit spawns, with no button and no player input. An ability that is not
+passive still gets added, but nothing will trigger it; `Subsystem.log` says so rather than
+leaving you to wonder.
+
+`SkipIfSelfHealing` defaults to true: a unit that already regenerates is left alone, decided by
+walking its abilities for a healing health-over-time effect rather than by any hard-coded list.
+Set it to `false` to stack regeneration on top of what a unit already has.
+
+Two things to expect:
+
+- **A unit gets its abilities when it spawns.** Vehicles already on the field keep the ability
+  list they were built with, so a granted ability shows up on newly built units and on everything
+  from the next mission onward — never on the fleet standing in front of you.
+- Unlike buffs, this is **not** saved with the game. It is re-applied on every mission load,
+  which is why it has to be idempotent, and it is: an ability already present is not added twice.
+
 ### Proving it is really per-commander
 
 Buffing your own faction is not a test. In the campaign you are Coalition (`C_`) and the enemy is

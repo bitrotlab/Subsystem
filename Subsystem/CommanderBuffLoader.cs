@@ -40,6 +40,9 @@ namespace Subsystem
     public class CommanderBuffLoader
     {
         private const string ExtensionsTypeName = "BBI.Game.Simulation.EntityTypeBuffExtensions";
+        private const string BuffedAbilityTypeName = "BBI.Game.Simulation.BuffedAbilityAttributes";
+
+        private static ConstructorInfo sBuffedAbilityCtor;
 
         // EntityTypeBuffExtensions is internal to BBI.Game. Re-implementing it here would mean
         // duplicating eleven component categories and keeping them in step with the game across
@@ -186,6 +189,13 @@ namespace Subsystem
 
                 var commanderID = new CommanderID(id);
 
+                // Grants first: an Ability_* buff in the same patch then reaches an ability that
+                // was only just added.
+                foreach (var kvp in commanderPatch.AddAbilities)
+                {
+                    applyAbilityGrantPatch(entityTypeCollection, commanderID, kvp.Key, kvp.Value);
+                }
+
                 foreach (var kvp in commanderPatch.EntityTypeBuffs)
                 {
                     applyEntityTypeBuffPatch(entityTypeCollection, commanderID, kvp.Key, kvp.Value);
@@ -219,7 +229,8 @@ namespace Subsystem
 
                 var matched = 0;
 
-                foreach (var entityTypeName in matchingEntityTypes(entityTypeCollection, typeSpec, patch))
+                foreach (var entityTypeName in matchingEntityTypes(entityTypeCollection, typeSpec,
+                             patch.UseAsPrefix, patch.UnitClass, patch.ClassOperator))
                 {
                     matched++;
                     applyToEntityType(entityTypeCollection, commanderID, entityTypeName, desired);
@@ -235,11 +246,12 @@ namespace Subsystem
         // Mirrors the matching Sim.AddEntityTypeBuffs does: name or name prefix, an optional
         // UnitClass filter, and only types that have UnitAttributes — the engine will not buff
         // anything else.
-        private List<string> matchingEntityTypes(EntityTypeCollection entityTypeCollection, string typeSpec, EntityTypeBuffPatch patch)
+        private List<string> matchingEntityTypes(EntityTypeCollection entityTypeCollection, string typeSpec,
+            bool? useAsPrefixOrNull, UnitClass? unitClassOrNull, FlagOperator? classOperatorOrNull)
         {
-            var useAsPrefix = patch.UseAsPrefix ?? false;
-            var unitClass = patch.UnitClass ?? UnitClass.None;
-            var classOperator = patch.ClassOperator ?? FlagOperator.Or;
+            var useAsPrefix = useAsPrefixOrNull ?? false;
+            var unitClass = unitClassOrNull ?? UnitClass.None;
+            var classOperator = classOperatorOrNull ?? FlagOperator.Or;
 
             var matches = new List<string>();
 
@@ -259,6 +271,179 @@ namespace Subsystem
             }
 
             return matches;
+        }
+
+        private void applyAbilityGrantPatch(EntityTypeCollection entityTypeCollection, CommanderID commanderID, string typeSpec, EntityTypeAbilityPatch patch)
+        {
+            using (logger.BeginScope($"AddAbilities: {typeSpec}"))
+            {
+                var grants = new List<KeyValuePair<int, AbilityGrantPatch>>();
+
+                foreach (var kvp in patch.Abilities)
+                {
+                    if (!int.TryParse(kvp.Key, out var parsed))
+                    {
+                        logger.Log($"ERROR: Non-integer key: {kvp.Key}");
+                        return;
+                    }
+
+                    grants.Add(new KeyValuePair<int, AbilityGrantPatch>(parsed, kvp.Value));
+                }
+
+                grants.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+                var matched = 0;
+
+                foreach (var entityTypeName in matchingEntityTypes(entityTypeCollection, typeSpec,
+                             patch.UseAsPrefix, patch.UnitClass, patch.ClassOperator))
+                {
+                    matched++;
+
+                    foreach (var grant in grants)
+                    {
+                        grantAbility(entityTypeCollection, commanderID, entityTypeName, grant.Value);
+                    }
+                }
+
+                if (matched == 0)
+                {
+                    logger.Log("NOTICE: matched no entity type with UnitAttributes");
+                }
+            }
+        }
+
+        private void grantAbility(EntityTypeCollection entityTypeCollection, CommanderID commanderID, string entityTypeName, AbilityGrantPatch grant)
+        {
+            if (string.IsNullOrEmpty(grant.From))
+            {
+                logger.Log($"{entityTypeName}: ERROR: no From given");
+                return;
+            }
+
+            var donor = findAbility(entityTypeCollection.GetEntityType(grant.From));
+            if (donor == null)
+            {
+                logger.Log($"{entityTypeName}: ERROR: '{grant.From}' is not an entity type carrying an ability");
+                return;
+            }
+
+            var entityType = entityTypeCollection.GetCommanderSpecificEntityType(entityTypeName, commanderID.ID);
+            if (entityType == null)
+            {
+                logger.Log($"{entityTypeName}: ERROR: no commander-specific entity type");
+                return;
+            }
+
+            if (entityType.Get<AbilityAttributes>(donor.Name) != null)
+            {
+                logger.Log($"{entityTypeName}: already has {donor.Name}");
+                return;
+            }
+
+            if ((grant.SkipIfSelfHealing ?? true) && selfHeals(entityType))
+            {
+                logger.Log($"{entityTypeName}: skipped, already regenerates");
+                return;
+            }
+
+            // MakeAllTypesBuffableForCommander wraps every ability on every commander copy and
+            // sets the Ability category-buffed flag, after which AddAbilityBuffs casts each
+            // ability to BuffedAbilityAttributes without checking. Adding a bare one would make
+            // the next ability buff on this unit throw -- including one the game itself applies
+            // through a research upgrade. So add it wrapped, the way the engine would have.
+            var wrapped = wrapAbility(donor);
+            if (wrapped == null)
+            {
+                logger.Log($"{entityTypeName}: ERROR: could not wrap {donor.Name}; not added");
+                return;
+            }
+
+            entityType.Add(wrapped);
+
+            logger.Log($"{entityTypeName}: added {donor.Name} ({describeHealing(donor)})");
+        }
+
+        private static AbilityAttributes findAbility(EntityTypeAttributes entityType)
+        {
+            if (entityType == null) { return null; }
+
+            var abilities = entityType.GetAll<AbilityAttributes>();
+            return abilities != null && abilities.Length > 0 ? abilities[0] : null;
+        }
+
+        /// <summary>
+        /// Whether any ability on this type already applies a healing health-over-time effect --
+        /// "does it regenerate by itself", without hard-coding a list of ability names.
+        /// </summary>
+        private static bool selfHeals(EntityTypeAttributes entityType)
+        {
+            var abilities = entityType.GetAll<AbilityAttributes>();
+            if (abilities == null) { return false; }
+
+            foreach (var ability in abilities)
+            {
+                if (healPerSecond(ability) > 0) { return true; }
+            }
+
+            return false;
+        }
+
+        private static int healPerSecond(AbilityAttributes ability)
+        {
+            if (ability == null) { return 0; }
+
+            var apply = ability.ApplyStatusEffect;
+            if (apply == null || apply.StatusEffectsToApply == null) { return 0; }
+
+            var total = 0;
+
+            foreach (var effect in apply.StatusEffectsToApply)
+            {
+                if (effect == null || effect.Modifiers == null) { continue; }
+
+                foreach (var modifier in effect.Modifiers)
+                {
+                    var healthOverTime = modifier.HealthOverTimeAttributes;
+                    if (healthOverTime.Amount <= 0 || healthOverTime.DamageType != DamageType.Heal) { continue; }
+                    if (healthOverTime.MSTickDuration <= 0) { continue; }
+
+                    total += healthOverTime.Amount * 1000 / healthOverTime.MSTickDuration;
+                }
+            }
+
+            return total;
+        }
+
+        private string describeHealing(AbilityAttributes ability)
+        {
+            var perSecond = healPerSecond(ability);
+
+            if (perSecond <= 0)
+            {
+                return $"targeting {ability.TargetingType}, no healing effect";
+            }
+
+            return ability.TargetingType == AbilityTargetingType.Passive
+                ? $"{perSecond} health/sec, passive"
+                : $"{perSecond} health/sec, targeting {ability.TargetingType} — NOT passive, so it will not fire on its own";
+        }
+
+        private object wrapAbility(AbilityAttributes ability)
+        {
+            if (sBuffedAbilityCtor == null)
+            {
+                var type = typeof(CommanderID).Assembly.GetType(BuffedAbilityTypeName);
+                if (type == null) { return null; }
+
+                sBuffedAbilityCtor = type.GetConstructor(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null,
+                    new[] { typeof(AbilityAttributes), typeof(int), typeof(int) }, null);
+
+                if (sBuffedAbilityCtor == null) { return null; }
+            }
+
+            // 4, 4: Buff.ID.Ability has four attributes, which is the hint the engine passes.
+            return sBuffedAbilityCtor.Invoke(new object[] { ability, 4, 4 });
         }
 
         private static bool classMatches(UnitClass actual, UnitClass wanted, FlagOperator classOperator)

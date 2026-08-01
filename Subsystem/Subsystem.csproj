@@ -94,6 +94,8 @@
     <Compile Include="CommanderBuffLoader.cs" />
     <Compile Include="Patch\CommanderPatch.cs" />
     <Compile Include="Patch\EntityTypeBuffPatch.cs" />
+    <Compile Include="Patch\EntityTypeAbilityPatch.cs" />
+    <Compile Include="Patch\AbilityGrantPatch.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

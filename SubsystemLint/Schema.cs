@@ -42,6 +42,8 @@ internal sealed class Schema
         ["Subsystem.Patch.AttributesPatch.Commanders"] = KeyKind.CommanderId,
         ["Subsystem.Patch.CommanderPatch.EntityTypeBuffs"] = KeyKind.EntityOrPrefix,
         ["Subsystem.Patch.EntityTypeBuffPatch.Buffs"] = KeyKind.Index,
+        ["Subsystem.Patch.CommanderPatch.AddAbilities"] = KeyKind.EntityOrPrefix,
+        ["Subsystem.Patch.EntityTypeAbilityPatch.Abilities"] = KeyKind.Index,
     };
 
     public Schema(string subsystemDll, string managed)

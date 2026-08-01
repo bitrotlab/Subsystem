@@ -83,6 +83,27 @@
             "0": { "Attribute": "Unit_Armour", "Mode": "Add", "Value": 2 }
           }
         }
+      },
+
+      // Buffs can only tune an ability a unit already has. AddAbilities copies a whole one on,
+      // which is how you give a unit self-repair it does not ship with. "From" is the entity
+      // type name of the ability; the entity dump lists them all with what each one does.
+      //
+      // Only an ability with "targeting: Passive" fires by itself as the unit spawns. Anything
+      // else is added but never triggered, and Subsystem.log says so.
+      //
+      // Units already on the field keep the abilities they were built with, so this shows up on
+      // newly built units. Unlike buffs it is not saved with the game -- it is re-applied on
+      // every mission load, and an ability already present is never added twice.
+      "AddAbilities": {
+        "C_": {
+          "UseAsPrefix": true,
+          "Abilities": {
+            // 24 health/sec, permanent. SkipIfSelfHealing defaults to true, so units that
+            // already regenerate are left alone.
+            "0": { "From": "Ability_C_Battlecruiser_Regen", "SkipIfSelfHealing": true }
+          }
+        }
       }
     }
   }
