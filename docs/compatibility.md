@@ -15,7 +15,7 @@ replaces years of game code with the 2018 version.
 
 The actual modification inside that 1.85 MB file is three IL instructions.
 
-## The hook
+## The hooks
 
 At the end of `BBI.Unity.Game.ShipbreakersMain.ResetEntityManager()`, immediately after the call
 to `InitializeEntityManager`:
@@ -26,8 +26,26 @@ ldsfld  class BBI.Core.Data.EntityTypeCollection BBI.Unity.Game.ShipbreakersMain
 call    instance void Subsystem.AttributeLoader::LoadAttributes(class BBI.Core.Data.EntityTypeCollection)
 ```
 
-That is the whole modification. `ResetEntityManager` runs at the start of every match, which is
-why the README says stats are reloaded at the beginning of every game.
+`ResetEntityManager` runs at the start of every match, which is why the README says stats are
+reloaded at the beginning of every game. That was the whole of the 0.4.0 modification.
+
+A second hook, of the same shape, applies the per-commander section of `patch.json`. It goes in
+the `OnSceneLoadComplete` coroutine, immediately after the call to `SimController.PostLoadInit`:
+
+```
+newobj  instance void Subsystem.CommanderBuffLoader::.ctor()
+ldsfld  class BBI.Core.Data.EntityTypeCollection BBI.Unity.Game.ShipbreakersMain::sEntityTypes
+call    instance void Subsystem.CommanderBuffLoader::ApplyCommanderBuffs(class BBI.Core.Data.EntityTypeCollection)
+```
+
+It has to be this late. Per-commander entity types do not exist until `Sim`'s constructor calls
+`MakeAllTypesBuffableForCommander`, and on a save load `Sim.OnLoad` throws them away and rebuilds
+them; `PostLoadInit` is after both. The hook site is found by looking for the state machine under
+`ShipbreakersMain` that calls `PostLoadInit`, rather than by its `<OnSceneLoadComplete>d__29`
+name — that suffix is a compiler counter and moves whenever the class gains or loses an iterator.
+
+`SubsystemPatcher --verify` reports the two hooks separately, so an install patched by an older
+version is recognised as incomplete rather than as up to date.
 
 `SubsystemPatcher` applies exactly these three instructions to whatever `BBI.Unity.Game.dll` you
 have, instead of replacing the file. Because it patches your copy, it keeps working across game
@@ -74,9 +92,18 @@ In other words: seven years of game updates did not change the data model Subsys
 The patcher rewrites `BBI.Unity.Game.dll` with Mono.Cecil, which reconstructs the whole file
 rather than splicing bytes. That was checked rather than assumed:
 
-- **Every method body is unchanged except one.** Comparing an opcode-and-operand fingerprint of
-  all 15,907 members before and after, only `ResetEntityManager` differs: +3 instructions, with
-  its 2 exception handlers and 9 locals intact.
+- **Every method body is unchanged except the two hook sites.** Comparing an opcode-and-operand
+  fingerprint of all 8,722 method bodies before and after, only these differ, and no member is
+  added or removed:
+
+  | Method | Instructions | Locals | Handlers |
+  | --- | --- | --- | --- |
+  | `ShipbreakersMain::ResetEntityManager` | 88 → 91 | 9 → 9 | 2 → 2 |
+  | `ShipbreakersMain/<OnSceneLoadComplete>d__29::MoveNext` | 769 → 772 | 15 → 15 | 2 → 2 |
+
+  Three instructions each, exception handlers and locals intact. (The single-hook figure this
+  document used to quote — 15,907 members, one changed method — was from before the
+  commander-buff hook existed.)
 - **No metadata is lost.** All 26,312 lines of custom attributes and metadata flags — 109
   `[Serializable]` types, 10 `[NonSerialized]` fields, class layout, security declarations — are
   byte-identical before and after.

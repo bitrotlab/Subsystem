@@ -23,7 +23,7 @@ jobs:
       - name: Build SubsystemLint
         run: dotnet build SubsystemLint/SubsystemLint.csproj -c Release --nologo
 
-      # The mod assembly references BBI.Core, BBI.Game.Data and UnityEngine from an installed
+      # The mod assembly references BBI.Core, BBI.Game.Data, BBI.Game and UnityEngine from an installed
       # copy of the game. Those cannot be redistributed, so build/Subsystem.Sdk.csproj is not
       # buildable on CI -- it is built locally against the game. See docs/building.md.
       - name: Check the mod project is still well-formed

@@ -33,18 +33,23 @@ and is reported in `Subsystem.log`.
 
 ### Lists are keyed by index, not by name
 
-Four properties are lists, and their keys must be consecutive integers as strings:
+Five properties are lists, and their keys must be consecutive integers as strings:
 
 - `ExperienceAttributesPatch.Levels`
 - `ExperienceLevelAttributesPatch.Buff`
 - `WeaponAttributesPatch.Modifiers`
 - `WeaponAttributesPatch.EntityTypesToSpawnOnImpact`
+- `EntityTypeBuffPatch.Buffs`
 
 ```json
 "Modifiers": {
   "0": { "TargetClass": "Air", "ClassOperator": "Or", "Modifier": "CanTarget", "Amount": 1 }
 }
 ```
+
+Entries are processed in **numeric** index order. (Before this was fixed they were processed in
+string order, which puts `"10"` between `"1"` and `"2"` — so any list longer than ten entries
+tripped the non-consecutive check at `"10"` and silently discarded everything from there on.)
 
 Rules enforced by `applyListPatch`:
 
@@ -111,7 +116,188 @@ Entities
     ├── AbilityAttributes  ── <name> ── AbilityAttributesPatch
     ├── StorageAttributes  ── <name> ── StorageAttributesPatch
     └── WeaponAttributes   ── <name> ── WeaponAttributesPatch
+
+Commanders
+└── <commander ID>                      CommanderPatch
+    └── EntityTypeBuffs
+        └── <entity name or prefix>     EntityTypeBuffPatch
+            ├── UseAsPrefix             bool
+            ├── UnitClass               UnitClass
+            ├── ClassOperator           FlagOperator
+            └── Buffs ── <index> ────── AttributeBuffPatch
 ```
+
+## Commanders — changing stats for one player only
+
+Everything under `Entities` patches the shared entity type templates, so it applies to *every*
+player who fields that unit. `Commanders` is the other option: it gives one commander's units
+different numbers and leaves everyone else's alone.
+
+```json
+{
+  "Commanders": {
+    "1": {
+      "EntityTypeBuffs": {
+        "C_Escort_MP": {
+          "Buffs": {
+            "0": { "Attribute": "Unit_MaxHealth", "Mode": "Set", "Value": 5000 },
+            "1": { "Attribute": "UnitDynamics_MaxSpeed", "Mode": "AddPercent", "Value": 25 }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This is the same mechanism a research upgrade uses. The engine keeps a per-commander copy of each
+entity type and applies *attribute buffs* to it; units resolve their attributes through that copy
+when they spawn. Subsystem applies your buffs from a second hook, once the simulation exists.
+
+### Which commander am I?
+
+Commander IDs are numbers, and `Subsystem.log` prints the ones you need at the top of its
+`Commander buffs` section every match:
+
+```
+Commander buffs
+
+  local commander: 1, CPU commander: 2
+```
+
+Key on the number, not on "me". A patch that said "whoever is playing" would apply to a different
+commander on every machine and desync a multiplayer game immediately.
+
+### Matching more than one entity type
+
+| Property | Effect |
+| --- | --- |
+| `UseAsPrefix` | Match every entity type whose name *starts with* the key, instead of the one named by it |
+| `UnitClass` | Only types whose `UnitAttributes.Class` matches. Omitted means no class filter |
+| `ClassOperator` | `Or` (shares any flag, the default) or `And` (has all of them) |
+
+```json
+"C_": { "UseAsPrefix": true, "UnitClass": "Air", "Buffs": { "0": { "Attribute": "Unit_Armour", "Mode": "Add", "Value": 2 } } }
+```
+
+Only entity types that have `UnitAttributes` can be buffed; the engine skips everything else, and
+`Subsystem.log` says so when nothing matched.
+
+### Buffs
+
+`Buffs` is an **indexed list** — keys `"0"`, `"1"`, … — of the same shape used by
+`ExperienceAttributes.Levels[].Buff`:
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `Attribute` | `Buff.CategoryAndID` | Which attribute, e.g. `Unit_MaxHealth` |
+| `Mode` | `AttributeBuffMode` | `Add`, `AddPercent`, `Set`, `SetAndHold` |
+| `Value` | `int` | Whole number. `AddPercent` takes `25` for +25% |
+| `Name` | `string` | Which component, for the categories that have several. Omit to hit them all |
+
+`Value` is always an `int`, including for attributes that are `double` under `Entities`. To halve
+a multiplier, use `AddPercent` with `-50` rather than a fractional `Set`.
+
+### The attributes you can buff
+
+This is the whole list — it is fixed by the engine, and it is much smaller than what `Entities`
+can reach. Anything not here (enum values, strings, projectile types, weapon `Modifiers`, turret
+settings) can only be changed globally, under `Entities`.
+
+| Category | `Attribute` values |
+| --- | --- |
+| Unit | `Unit_MaxHealth`, `Unit_Armour`, `Unit_Resource1Cost`, `Unit_Resource2Cost`, `Unit_PopCapCost`, `Unit_ProductionTime`, `Unit_SensorRadius`, `Unit_ContactRadius`, `Unit_NumProductionQueues`, `Unit_AggroRange`, `Unit_LeashRange`, `Unit_AlertRange`, `Unit_FireRateDisplay`, `Unit_NonAutoTargetable`, `Unit_DamageReceivedMultiplier`, `Unit_AccuracyReceivedMultiplier` |
+| UnitDynamics | `UnitDynamics_MaxSpeed`, `UnitDynamics_AccelerationTime`, `UnitDynamics_BrakingTime`, `UnitDynamics_MinCruiseSpeed`, `UnitDynamics_MaxSpeedTurnRadius` |
+| UnitWeapon | `UnitWeapon_BaseDamagePerRound`, `UnitWeapon_RateOfFire`, `UnitWeapon_CooldownTime`, `UnitWeapon_ReloadTime`, `UnitWeapon_AreaOfEffect`, `UnitWeapon_ExcludeFromAutoTargetAcquisition`, `UnitWeapon_ExcludeFromAutoFire`, `UnitWeapon_ActiveStatusEffectsIndex` |
+| WeaponRange | `WeaponRange_DistanceShort`, `WeaponRange_DistanceMedium`, `WeaponRange_DistanceLong`, `WeaponRange_AccuracyShort`, `WeaponRange_AccuracyMedium`, `WeaponRange_AccuracyLong` |
+| Ability | `Ability_CooldownTimeSecs`, `Ability_WarmupTimeSecs`, `Ability_CostR1`, `Ability_CostR2` |
+| Inventory | `Inventory_Capacity`, `Inventory_StartingAmount` |
+| Harvester | `Harvester_SalvageDistance`, `Harvester_CycleTime`, `Harvester_ResourcesLoadedPerCycle`, `Harvester_ResourcesExtractedPerCycle` |
+| HangarBay | `HangarBay_MinDockCoolingSeconds`, `HangarBay_MaxDamageCoolingSeconds`, `HangarBay_MaxPayloadCoolingSeconds` |
+| PowerShunt | `PowerShunt_PowerLevelChargeTimeSeconds`, `PowerShunt_HeatThreshold` |
+| PowerSystem | `PowerSystem_StartingPowerLevelIndex`, `PowerSystem_StartingMaxPowerLevelIndex` |
+| UnitCombatBehaviour | `UnitCombatBehaviour_MinDesiredCombatRange`, `UnitCombatBehaviour_MaxDesiredCombatRange` |
+
+`Buff.CategoryAndID` also defines `Commander_PopulationCap`, `Commander_DockedReloadModifier`,
+`Commander_DockedRepairModifier` and `Commander_IgnoreMinimumDockTime`. Those attach to the
+commander rather than to a unit type, through engine API that is internal to `BBI.Game` and not
+reachable from the mod assembly. Subsystem **rejects them with an error in `Subsystem.log`**
+rather than accepting them and quietly doing nothing.
+
+### What `Name` means, per category
+
+Only some categories have more than one component to choose between. An omitted or empty `Name`
+always means "every component in this category".
+
+| Category | `Name` is |
+| --- | --- |
+| `UnitWeapon_*`, `WeaponRange_*` | the **weapon ID from the unit's loadout** — see below |
+| `Ability_*` | the ability name, as printed in `Subsystem.entities.log` |
+| `Inventory_*` | the inventory ID, the same key `StorageAttributes.InventoryLoadout` uses |
+| `HangarBay_*` | the hangar bay name |
+| everything else | ignored — the unit has only one of these |
+
+**Weapons are the trap.** The `Entities` section keys weapons by the weapon component's name
+(`C_Escort_Weapon_G2G_MP`); weapon *buffs* key on `WeaponBinding.WeaponID`, which is a different
+string. Getting it wrong is silent: the buff is simply never matched. `Subsystem.entities.log`
+prints the right one under each weapon:
+
+```
+    WeaponAttributesData: C_Escort_Weapon_G2G_MP
+        weapon ID (for commander buffs): <-- use this one
+```
+
+If the unit has only one weapon, leave `Name` out and the question does not arise.
+
+### Loading a save
+
+Buffs are saved with the game and restored when you load, which is the main reason to use this
+rather than patching the per-commander copies directly — those are rebuilt from scratch on load
+and any direct edit to them would be lost.
+
+Because loading a save re-runs Subsystem's hook on top of buffs the game has already restored,
+a buff that is already present — same attribute, mode and value — is not applied a second time.
+Without that, `Add` and `AddPercent` would compound every time you loaded. One side effect: two
+identical entries in the same `Buffs` list collapse into one. Write `Add 200` rather than `Add
+100` twice.
+
+### Multiplayer
+
+The usual rule still holds — every player needs byte-identical `patch.json` — and it is enough,
+because every client applies the same buffs to the same commander IDs. What you must not do is
+key on the local player; that is why there is no "me" and no name-based lookup here.
+
+Giving one commander better units is, of course, an unfair game. This is aimed at single-player
+and at skirmishes against the AI.
+
+### Proving it is really per-commander
+
+Buffing your own faction is not a test. In the campaign you are Coalition (`C_`) and the enemy is
+Gaalsien (`G_`), so a `C_*` buff looks player-only whether or not the scoping works — and campaign
+entity names carry no `_MP` suffix, so `C_HAC`, not `C_HAC_MP`.
+
+**The control that costs nothing: change the commander key to an ID that is not in the match.**
+Take a buff you have watched apply, re-key it from `"1"` to `"7"`, and start the mission again.
+The buff must now do nothing — if it still applies, it was never commander-scoped. Two runs, no
+risk to the game either way, and it distinguishes real scoping from a global patch outright.
+
+The louder control is to buff the *enemy's* units under **your** commander ID:
+
+```json
+"G_": { "UseAsPrefix": true, "Buffs": { "0": { "Attribute": "Unit_MaxHealth", "Mode": "Set", "Value": 99999 } } }
+```
+
+You never own Gaalsien units, so if the scoping holds this does nothing at all. Be aware of what
+you are betting: the failure mode is a mission full of unkillable enemies. Use a *nerf* rather
+than a buff — `Set 100` instead of `Set 99999` — if you would rather a leak made the mission easy
+than unplayable.
+
+(One exception, if you go looking for it: capturing an enemy unit re-resolves its attributes for
+its new owner — `UnitManager.TransferUnitToCommander` goes through
+`GetCommanderSpecificEntityType` — so a captured unit does pick up its captor's buffs.)
+
+In a skirmish you have the easier option of a mirror matchup: same faction on both sides, buff the
+unit for one commander ID and watch the other side's identical units behave normally.
 
 ## UnitAttributes
 

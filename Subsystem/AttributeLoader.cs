@@ -25,6 +25,14 @@ namespace Subsystem
             logger = new StringLogger(writer);
         }
 
+        // Lets CommanderBuffLoader reuse the buff-list patching below and have it write into the
+        // same log. Only the Apply* methods are usable on an instance built this way; LoadAttributes
+        // and ApplyAttributesPatch own the log file and need the writer.
+        public AttributeLoader(StringLogger logger)
+        {
+            this.logger = logger;
+        }
+
         public void LoadAttributes(EntityTypeCollection entityTypeCollection)
         {
             // Written before the patch is read, and in its own try/catch, so the name reference
@@ -307,10 +315,10 @@ namespace Subsystem
             var attributeBuffSetWrapper = new AttributeBuffSetWrapper(experienceLevelAttributesWrapper.Buff);
             experienceLevelAttributesWrapper.Buff = attributeBuffSetWrapper;
 
-            applyAttributeBuffSetPatch(experienceLevelAttributesPatch.Buff, attributeBuffSetWrapper);
+            ApplyAttributeBuffSetPatch(experienceLevelAttributesPatch.Buff, attributeBuffSetWrapper);
         }
 
-        private void applyAttributeBuffSetPatch(Dictionary<string, AttributeBuffPatch> patch, AttributeBuffSetWrapper wrapper)
+        public void ApplyAttributeBuffSetPatch(Dictionary<string, AttributeBuffPatch> patch, AttributeBuffSetWrapper wrapper)
         {
             applyListPatch(patch, wrapper.Buffs, () => new AttributeBuffWrapper(), applyAttributeBuffPatch, nameof(AttributeBuff));
         }

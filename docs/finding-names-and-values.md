@@ -26,6 +26,7 @@ C_HAC_Upgrade01_MP
     UnitAttributesData: C_HAC_Upgrade01_UnitAttributesAsset_MP
     UnitMovementAttributesData
     WeaponAttributesData: C_HAC_Upgrade01_Weapon_G2A_MP
+        weapon ID (for commander buffs): <the loadout's ID for this weapon>
         auto-acquire: yes   auto-fire: yes   damage: 250   cooldown: 700ms
         DamageType: Missile   TargetStyle: TurretImpactRun
         ranges: Short=1400 Medium=1400 Long=1400
@@ -44,6 +45,11 @@ Note that the component name is not always the entity name: above, the entity is
 
 ### The weapon detail lines
 
+- `weapon ID (for commander buffs)` — the ID this weapon has in the unit's loadout. It is *not*
+  necessarily the component name on the line above. The `Entities` section keys weapons by the
+  component name; buffs under `Commanders` key on this ID instead, and a wrong one is matched
+  silently against nothing. The line is only printed for weapons that are actually bound to a
+  unit's loadout.
 - `auto-acquire` / `auto-fire` — whether the unit uses this weapon on its own. A weapon with
   `auto-fire: no` only fires when you trigger its ability. That is how grenade and smoke
   launchers work, and it is why a unit can look like it "refuses to shoot".

@@ -33,6 +33,7 @@
   <ItemGroup>
     <Reference Include="BBI.Core" />
     <Reference Include="BBI.Game.Data" />
+    <Reference Include="BBI.Game" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -90,6 +91,9 @@
     <Compile Include="Patch\WeaponAttributesPatch.cs" />
     <Compile Include="Wrappers\WeaponAttributesWrapper.cs" />
     <Compile Include="Wrappers\WeaponModifierInfoWrapper.cs" />
+    <Compile Include="CommanderBuffLoader.cs" />
+    <Compile Include="Patch\CommanderPatch.cs" />
+    <Compile Include="Patch\EntityTypeBuffPatch.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

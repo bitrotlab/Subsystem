@@ -8,10 +8,14 @@ internal enum KeyKind
 {
     /// <summary>Entity type name, e.g. "C_HAC_Upgrade01_MP".</summary>
     Entity,
+    /// <summary>Entity type name, or a prefix of one when the entry sets "UseAsPrefix": true.</summary>
+    EntityOrPrefix,
     /// <summary>Name of a named component on the entity, e.g. a weapon.</summary>
     Component,
     /// <summary>Consecutive list index; AttributeLoader requires these to parse as integers.</summary>
     Index,
+    /// <summary>Commander ID; CommanderBuffLoader requires these to parse as integers.</summary>
+    CommanderId,
     /// <summary>Free-form identifier that cannot be checked statically.</summary>
     Free,
 }
@@ -35,6 +39,9 @@ internal sealed class Schema
         ["Subsystem.Patch.ExperienceLevelAttributesPatch.Buff"] = KeyKind.Index,
         ["Subsystem.Patch.WeaponAttributesPatch.Modifiers"] = KeyKind.Index,
         ["Subsystem.Patch.WeaponAttributesPatch.EntityTypesToSpawnOnImpact"] = KeyKind.Index,
+        ["Subsystem.Patch.AttributesPatch.Commanders"] = KeyKind.CommanderId,
+        ["Subsystem.Patch.CommanderPatch.EntityTypeBuffs"] = KeyKind.EntityOrPrefix,
+        ["Subsystem.Patch.EntityTypeBuffPatch.Buffs"] = KeyKind.Index,
     };
 
     public Schema(string subsystemDll, string managed)
@@ -163,6 +170,8 @@ internal sealed class Schema
         var kind = KeyKinds.TryGetValue(memberKey, out var k) ? k : KeyKind.Free;
         var valueType = dict.GenericArguments[1];
 
+        if (kind == KeyKind.Index) ReportIndexGaps(element, path, report);
+
         foreach (var entry in element.EnumerateObject())
         {
             var childPath = $"{path}.{entry.Name}";
@@ -188,6 +197,34 @@ internal sealed class Schema
                     }
                     break;
 
+                case KeyKind.CommanderId:
+                    if (!int.TryParse(entry.Name, out _))
+                        report.Error(childPath,
+                            $"'{entry.Name}' is not a commander ID; keys here are whole numbers "
+                            + "(Subsystem.log prints the local and CPU commander IDs at match start)");
+                    break;
+
+                case KeyKind.EntityOrPrefix:
+                    if (names == null) break;
+
+                    if (UsesPrefix(entry.Value))
+                    {
+                        if (!names.Entities.Any(e => e.StartsWith(entry.Name, StringComparison.Ordinal)))
+                            report.Error(childPath, $"no entity type in this install starts with '{entry.Name}'");
+                        break;
+                    }
+
+                    entity = entry.Name;
+                    if (!names.HasEntity(entry.Name))
+                    {
+                        var entityHint = Suggest(entry.Name, names.Entities);
+                        report.Error(childPath,
+                            $"no entity type named '{entry.Name}' in this install"
+                            + (entityHint != null ? $" — did you mean '{entityHint}'?" : "")
+                            + "  [add \"UseAsPrefix\": true to match a family of type names instead]");
+                    }
+                    break;
+
                 case KeyKind.Component:
                     if (names != null && entity != null && names.HasEntity(entity)
                         && !names.HasComponent(entity, entry.Name))
@@ -203,6 +240,37 @@ internal sealed class Schema
             ValidateValue(entry.Value, valueType, childPath, report, names, entity, memberKey);
         }
     }
+
+    /// <summary>
+    /// An indexed list has to be exactly 0..n-1. AttributeLoader walks the entries in index
+    /// order and stops at the first index past the end of the list, so a gap silently discards
+    /// every later entry rather than reporting anything.
+    /// </summary>
+    private static void ReportIndexGaps(JsonElement element, string path, Report report)
+    {
+        var indices = new List<int>();
+        foreach (var entry in element.EnumerateObject())
+        {
+            if (int.TryParse(entry.Name, out var i)) indices.Add(i);
+        }
+
+        if (indices.Count == 0) return;
+
+        indices.Sort();
+        var expected = Enumerable.Range(0, indices.Count).ToList();
+        if (indices.SequenceEqual(expected)) return;
+
+        var missing = expected.Except(indices).ToList();
+        report.Error(path,
+            $"indices must be 0..{indices.Count - 1} with no gaps, found {string.Join(", ", indices)}"
+            + (missing.Count > 0 ? $" — missing {string.Join(", ", missing)}" : "")
+            + "  [AttributeLoader stops at the first gap and drops every entry after it]");
+    }
+
+    private static bool UsesPrefix(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Object
+        && value.TryGetProperty("UseAsPrefix", out var flag)
+        && flag.ValueKind == JsonValueKind.True;
 
     private static void ValidateEnum(JsonElement element, TypeDefinition def, string path, Report report)
     {

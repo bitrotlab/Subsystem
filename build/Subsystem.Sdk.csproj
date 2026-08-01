@@ -71,6 +71,11 @@
       <HintPath>$(ManagedDir)/BBI.Game.Data.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- CommanderID, SimController and the buff save states, for CommanderBuffLoader. -->
+    <Reference Include="BBI.Game">
+      <HintPath>$(ManagedDir)/BBI.Game.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine">
       <HintPath>$(ManagedDir)/UnityEngine.dll</HintPath>
       <Private>false</Private>

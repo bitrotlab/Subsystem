@@ -105,6 +105,37 @@ before deciding what to set it to.
 
 See the [patch.json reference](docs/patch-reference.md) for every property you can set.
 
+### Changing stats for one player only
+
+`Entities` patches the shared unit templates, so it applies to everyone who fields that unit. To
+give one commander different numbers and leave the enemy's alone, use `Commanders`:
+
+```json
+{
+  "Commanders": {
+    "1": {
+      "EntityTypeBuffs": {
+        "C_Escort_MP": {
+          "Buffs": {
+            "0": { "Attribute": "Unit_MaxHealth", "Mode": "Set", "Value": 5000 },
+            "1": { "Attribute": "UnitDynamics_MaxSpeed", "Mode": "AddPercent", "Value": 25 }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This uses the game's own attribute-buff system — the one research upgrades run on — so the
+changes are saved with the game and survive loading a save. In exchange, only the attributes the
+engine can buff are reachable: health, armour, costs, speed, weapon damage and rate of fire,
+weapon ranges, ability cooldowns and a few dozen more. Anything else stays global.
+
+`Subsystem.log` prints the local and CPU commander IDs at match start, so you know which number
+to key on. See [Commanders](docs/patch-reference.md#commanders--changing-stats-for-one-player-only)
+for the full attribute list and the rules.
+
 ### Check your patch before you launch
 
 ```sh

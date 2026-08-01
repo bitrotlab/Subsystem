@@ -10,7 +10,7 @@ Nothing else — no Visual Studio, no Mono, no Windows.
 | Project | Target | Builds on CI? |
 | --- | --- | --- |
 | `build/Subsystem.Sdk.csproj` | `net35` — the mod assembly, `Subsystem.dll` | **no** |
-| `SubsystemPatcher/` | `net8.0` — installs the hook into the game | yes |
+| `SubsystemPatcher/` | `net8.0` — installs the hooks into the game | yes |
 | `SubsystemLint/` | `net8.0` — validates `patch.json` | yes |
 
 `Subsystem/Subsystem.csproj` is the original 2018 legacy-format project. It is kept for reference
@@ -18,7 +18,7 @@ and is not used by any of the above; `build/Subsystem.Sdk.csproj` compiles the s
 
 ### Why the mod assembly cannot be built on CI
 
-It references `BBI.Core`, `BBI.Game.Data` and `UnityEngine` directly from the game's
+It references `BBI.Core`, `BBI.Game.Data`, `BBI.Game` and `UnityEngine` directly from the game's
 `Data/Managed/` folder. Those assemblies belong to the game and cannot be redistributed, so there
 is no way to build `Subsystem.dll` on a machine without the game installed.
 
@@ -109,8 +109,8 @@ dotnet run --project SubsystemPatcher -c Release -- --managed /tmp/managed-copy 
 dotnet run --project SubsystemPatcher -c Release -- --managed /tmp/managed-copy --restore
 ```
 
-A correct patcher will: report the hook missing, install it, report it present, refuse to patch
-twice, and restore a file whose checksum matches the original exactly. It should also refuse to
+A correct patcher will: report both hooks missing, install them, report them present, refuse to
+patch twice, and restore a file whose checksum matches the original exactly. It should also refuse to
 run against a `BBI.Unity.Game.dll` that does not match the rest of the install — test that by
 dropping the 0.4.0 release's copy in and confirming it reports dangling references.
 

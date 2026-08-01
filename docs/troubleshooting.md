@@ -26,7 +26,7 @@ Check `Data/output_log.txt`:
 | What you see | Meaning |
 | --- | --- |
 | no `Platform assembly: ...Subsystem.dll` line | `Subsystem.dll` is not in `Data/Managed/` |
-| that line, but no `[SUBSYSTEM]` line | the hook is not in `BBI.Unity.Game.dll` — run the patcher |
+| that line, but no `[SUBSYSTEM]` line | the hooks are not in `BBI.Unity.Game.dll` — run the patcher |
 | `[SUBSYSTEM] Error applying patch file: ...` | `patch.json` failed to parse — see below |
 | `[SUBSYSTEM] Applied attributes patch.` | it worked; read `Data/Subsystem.log` |
 
@@ -101,10 +101,34 @@ Before assuming the mod broke it, check what the unit can actually shoot. In
 To confirm a weapon is not the problem, patch the unit with **no** `WeaponAttributes` block at
 all and see whether the behaviour changes. If it does not, the weapon data was never involved.
 
+## A commander buff did nothing
+
+`Subsystem.log` gets a `Commander buffs` section at the end of every match start. Read it first —
+it names the commanders that exist and reports every entity type it touched.
+
+| What the log says | Meaning |
+| --- | --- |
+| no `Commander buffs` section at all | there is no `Commanders` key in `patch.json`, or the second hook is missing — run `SubsystemPatcher --verify` |
+| `ERROR: ... EntityTypeBuffExtensions not found` | a game update moved the engine API this depends on; commander buffs are unavailable until it is re-identified |
+| `NOTICE: matched no entity type with UnitAttributes` | the entity name (or prefix, or `UnitClass` filter) matched nothing that can be buffed |
+| `already applied` | the buff was restored from a save; this is the deduplication working, not a failure |
+| `applied N of M buff(s)` | it worked |
+
+If the log says it applied and the stat still looks unchanged, the usual suspects from the
+section above apply — most often that the unit already existed.
+
+**A weapon buff that reports as applied but changes nothing** is almost always the wrong `Name`.
+Weapon buffs key on the loadout's weapon ID, not on the weapon component name that the `Entities`
+section uses. `Subsystem.entities.log` prints the right one as
+`weapon ID (for commander buffs)`. Omitting `Name` buffs every weapon on the unit and sidesteps it.
+
+**Buffing the wrong commander** produces no error, because any commander ID is a legal key. Check
+the `local commander:` line in the log and key on that number.
+
 ## A list entry did not apply
 
-`Modifiers`, `EntityTypesToSpawnOnImpact`, `Levels` and `Buff` are keyed by **list index**, not by
-name. A key that is not an integer, or that is greater than the current number of entries, stops
+`Modifiers`, `EntityTypesToSpawnOnImpact`, `Levels`, `Buff` and `Buffs` are keyed by **list
+index**, not by name. A key that is not an integer, or that is greater than the current number of entries, stops
 processing of that list. See
 [the rule](patch-reference.md#lists-are-keyed-by-index-not-by-name).
 

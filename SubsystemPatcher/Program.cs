@@ -26,6 +26,13 @@ internal static class Program
     private const string LoaderTypeName = "Subsystem.AttributeLoader";
     private const string LoaderMethodName = "LoadAttributes";
 
+    // Second hook, for the per-commander section of patch.json. The per-commander entity types
+    // do not exist until Sim's constructor has run, so this has to be applied later than the
+    // first hook: inside the OnSceneLoadComplete coroutine, right after SimController.PostLoadInit.
+    private const string BuffAnchorMethodName = "PostLoadInit";
+    private const string BuffLoaderTypeName = "Subsystem.CommanderBuffLoader";
+    private const string BuffLoaderMethodName = "ApplyCommanderBuffs";
+
     private static int Main(string[] args)
     {
         try
@@ -116,26 +123,31 @@ internal static class Program
             return 1;
         }
 
-        if (IsPatched(target, managed) && !force)
+        var hooks = FindHooks(target, managed);
+
+        if (hooks.All && !force)
         {
-            Info("BBI.Unity.Game.dll already contains the Subsystem hook. Nothing to do.");
-            Info("(Use --force to re-apply, or --restore to remove it.)");
+            Info("BBI.Unity.Game.dll already contains both Subsystem hooks. Nothing to do.");
+            Info("(Use --force to re-apply, or --restore to remove them.)");
             return 0;
         }
+
+        if (hooks.Any && !hooks.All)
+            Info("An older Subsystem hook is present; re-patching to add the commander-buff hook.");
 
         var backup = target + BackupSuffix;
 
         // Always patch a pristine assembly: if a backup exists it is the unpatched original,
         // so re-patching after a game update means starting from the *new* file, not the backup.
         string source;
-        if (IsPatched(target, managed))
+        if (hooks.Any)
         {
             if (!File.Exists(backup))
                 throw new InvalidOperationException(
                     "BBI.Unity.Game.dll is already patched but no backup exists. "
                     + "Verify your game files through Steam, then run this tool again.");
             source = backup;
-            Info("Re-applying hook from the pristine backup.");
+            Info("Re-applying hooks from the pristine backup.");
         }
         else
         {
@@ -171,10 +183,10 @@ internal static class Program
         File.Move(temp, target, overwrite: true);
         Info("Patched BBI.Unity.Game.dll.");
 
-        if (!IsPatched(target, managed))
-            throw new InvalidOperationException("Post-patch verification failed — the hook is not present.");
+        if (!FindHooks(target, managed).All)
+            throw new InvalidOperationException("Post-patch verification failed — the hooks are not present.");
 
-        Info("Verified: the Subsystem hook is present.");
+        Info("Verified: both Subsystem hooks are present.");
         Info("");
         Info("Put your patch.json in the Data folder (one level up from Managed) and start a match.");
         Info("Subsystem.log will appear next to it.");
@@ -186,48 +198,65 @@ internal static class Program
         var hookType = game.MainModule.GetType(HookTypeName)
             ?? throw new InvalidOperationException($"{HookTypeName} not found — is this really BBI.Unity.Game.dll?");
 
-        var hookMethod = hookType.Methods.FirstOrDefault(m => m.Name == HookMethodName && m.Parameters.Count == 0)
+        var entityTypesField = hookType.Fields.FirstOrDefault(f => f.Name == EntityTypesFieldName && f.IsStatic)
+            ?? throw new InvalidOperationException($"static field {EntityTypesFieldName} not found on {HookTypeName}.");
+
+        var resetEntityManager = hookType.Methods.FirstOrDefault(m => m.Name == HookMethodName && m.Parameters.Count == 0)
             ?? throw new InvalidOperationException(
                 $"{HookTypeName}::{HookMethodName}() not found. The game's code changed shape; "
                 + "the hook site needs to be re-identified.");
 
-        if (!hookMethod.HasBody)
+        if (!resetEntityManager.HasBody)
             throw new InvalidOperationException($"{HookMethodName} has no body.");
-
-        var entityTypesField = hookType.Fields.FirstOrDefault(f => f.Name == EntityTypesFieldName && f.IsStatic)
-            ?? throw new InvalidOperationException($"static field {EntityTypesFieldName} not found on {HookTypeName}.");
-
-        var loaderType = subsystem.MainModule.GetType(LoaderTypeName)
-            ?? throw new InvalidOperationException($"{LoaderTypeName} not found in {ModAssembly}.");
-
-        var loaderCtor = loaderType.Methods.FirstOrDefault(m => m.IsConstructor && m.Parameters.Count == 0)
-            ?? throw new InvalidOperationException($"{LoaderTypeName} has no parameterless constructor.");
-
-        var loadAttributes = loaderType.Methods.FirstOrDefault(
-                m => m.Name == LoaderMethodName
-                     && m.Parameters.Count == 1
-                     && m.Parameters[0].ParameterType.FullName == entityTypesField.FieldType.FullName)
-            ?? throw new InvalidOperationException(
-                $"{LoaderTypeName}::{LoaderMethodName}({entityTypesField.FieldType.FullName}) not found.");
-
-        var il = hookMethod.Body.GetILProcessor();
 
         // The original 0.4.0 patch appended the call after ResetEntityManager rebuilds the
         // collection via InitializeEntityManager, so anchor on that call rather than on a
         // raw instruction offset.
+        InjectLoaderCall(game, subsystem, resetEntityManager, AnchorMethodName,
+                         entityTypesField, LoaderTypeName, LoaderMethodName);
+
+        InjectLoaderCall(game, subsystem, FindBuffHookMethod(hookType), BuffAnchorMethodName,
+                         entityTypesField, BuffLoaderTypeName, BuffLoaderMethodName);
+    }
+
+    /// <summary>
+    /// Inserts <c>new Loader().Method(ShipbreakersMain.sEntityTypes)</c> immediately after the
+    /// last call to <paramref name="anchorMethodName"/> in <paramref name="hookMethod"/>.
+    /// </summary>
+    private static void InjectLoaderCall(
+        AssemblyDefinition game, AssemblyDefinition subsystem, MethodDefinition hookMethod,
+        string anchorMethodName, FieldDefinition entityTypesField,
+        string loaderTypeName, string loaderMethodName)
+    {
+        var loaderType = subsystem.MainModule.GetType(loaderTypeName)
+            ?? throw new InvalidOperationException($"{loaderTypeName} not found in {ModAssembly}.");
+
+        var loaderCtor = loaderType.Methods.FirstOrDefault(m => m.IsConstructor && m.Parameters.Count == 0)
+            ?? throw new InvalidOperationException($"{loaderTypeName} has no parameterless constructor.");
+
+        var loaderMethod = loaderType.Methods.FirstOrDefault(
+                m => m.Name == loaderMethodName
+                     && m.Parameters.Count == 1
+                     && m.Parameters[0].ParameterType.FullName == entityTypesField.FieldType.FullName)
+            ?? throw new InvalidOperationException(
+                $"{loaderTypeName}::{loaderMethodName}({entityTypesField.FieldType.FullName}) not found.");
+
         var anchor = hookMethod.Body.Instructions.LastOrDefault(
                 i => (i.OpCode == OpCodes.Call || i.OpCode == OpCodes.Callvirt)
                      && i.Operand is MethodReference mr
-                     && mr.Name == AnchorMethodName)
+                     && mr.Name == anchorMethodName)
             ?? throw new InvalidOperationException(
-                $"no call to {AnchorMethodName} inside {HookMethodName} — hook site needs re-identifying.");
+                $"no call to {anchorMethodName} inside {hookMethod.DeclaringType.Name}::{hookMethod.Name} "
+                + "— hook site needs re-identifying.");
+
+        var il = hookMethod.Body.GetILProcessor();
 
         var ctorRef = game.MainModule.ImportReference(loaderCtor);
-        var loadRef = game.MainModule.ImportReference(loadAttributes);
+        var loadRef = game.MainModule.ImportReference(loaderMethod);
 
-        // newobj  Subsystem.AttributeLoader::.ctor()
+        // newobj  Subsystem.<Loader>::.ctor()
         // ldsfld  ShipbreakersMain::sEntityTypes
-        // call    Subsystem.AttributeLoader::LoadAttributes(EntityTypeCollection)
+        // call    Subsystem.<Loader>::<Method>(EntityTypeCollection)
         var call = Instruction.Create(OpCodes.Call, loadRef);
         var load = Instruction.Create(OpCodes.Ldsfld, entityTypesField);
         var make = Instruction.Create(OpCodes.Newobj, ctorRef);
@@ -236,19 +265,49 @@ internal static class Program
         il.InsertAfter(anchor, load);
         il.InsertAfter(anchor, make);
 
-        Info($"Injected hook into {HookTypeName}::{HookMethodName} after the {AnchorMethodName} call.");
+        Info($"Injected hook into {hookMethod.DeclaringType.Name}::{hookMethod.Name} after the {anchorMethodName} call.");
     }
+
+    /// <summary>
+    /// The compiler-generated state machine for ShipbreakersMain.OnSceneLoadComplete, found by
+    /// what it does rather than by its name: the <c>&lt;OnSceneLoadComplete&gt;d__29</c> suffix
+    /// is a compiler counter that moves whenever the class gains or loses an iterator.
+    /// </summary>
+    private static MethodDefinition FindBuffHookMethod(TypeDefinition hookType)
+    {
+        var candidates = hookType.NestedTypes
+            .SelectMany(t => t.Methods)
+            .Where(m => m.Name == "MoveNext" && m.HasBody && CallsMethodNamed(m, BuffAnchorMethodName))
+            .ToList();
+
+        return candidates.Count switch
+        {
+            1 => candidates[0],
+            0 => throw new InvalidOperationException(
+                $"no state machine under {HookTypeName} calls {BuffAnchorMethodName}. The game's code "
+                + "changed shape; the commander-buff hook site needs to be re-identified."),
+            _ => throw new InvalidOperationException(
+                $"{candidates.Count} state machines under {HookTypeName} call {BuffAnchorMethodName} "
+                + $"({string.Join(", ", candidates.Select(c => c.DeclaringType.Name))}); "
+                + "the commander-buff hook site is ambiguous and needs to be re-identified."),
+        };
+    }
+
+    private static bool CallsMethodNamed(MethodDefinition method, string name) =>
+        method.Body.Instructions.Any(i => i.Operand is MethodReference mr && mr.Name == name);
 
     // --------------------------------------------------------------- verify
 
     private static int Verify(string managed, string target)
     {
-        var patched = IsPatched(target, managed);
+        var hooks = FindHooks(target, managed);
+        var patched = hooks.All;
         var mod = File.Exists(Path.Combine(managed, ModAssembly));
         var backup = File.Exists(target + BackupSuffix);
         var stale = CountDanglingReferences(target, managed);
 
-        Info($"{TargetAssembly} hooked : {(patched ? "yes" : "no")}");
+        Info($"attributes hook         : {(hooks.Attributes ? "yes" : "no")}");
+        Info($"commander-buff hook     : {(hooks.CommanderBuffs ? "yes" : "no")}");
         Info($"{ModAssembly} present   : {(mod ? "yes" : "no")}");
         Info($"backup present          : {(backup ? "yes" : "no")}");
         Info($"matches this install    : {(stale == 0 ? "yes" : $"NO — {stale} dangling references")}");
@@ -292,7 +351,18 @@ internal static class Program
         return dangling;
     }
 
-    private static bool IsPatched(string target, string managed)
+    private readonly record struct Hooks(bool Attributes, bool CommanderBuffs)
+    {
+        public bool All => Attributes && CommanderBuffs;
+        public bool Any => Attributes || CommanderBuffs;
+    }
+
+    /// <summary>
+    /// Which Subsystem hooks the assembly already contains. Reported separately so that an
+    /// install patched by an older SubsystemPatcher — which only injected the attributes hook —
+    /// is recognised as incomplete rather than as up to date.
+    /// </summary>
+    private static Hooks FindHooks(string target, string managed)
     {
         using var resolver = new DefaultAssemblyResolver();
         resolver.RemoveSearchDirectory(".");
@@ -301,14 +371,26 @@ internal static class Program
             target, new ReaderParameters { AssemblyResolver = resolver });
 
         var type = asm.MainModule.GetType(HookTypeName);
-        var method = type?.Methods.FirstOrDefault(m => m.Name == HookMethodName && m.Parameters.Count == 0);
-        if (method is not { HasBody: true }) return false;
+        if (type == null) return new Hooks(false, false);
 
-        return method.Body.Instructions.Any(
-            i => i.Operand is MethodReference mr
-                 && mr.Name == LoaderMethodName
-                 && mr.DeclaringType?.FullName == LoaderTypeName);
+        var resetEntityManager = type.Methods.FirstOrDefault(m => m.Name == HookMethodName && m.Parameters.Count == 0);
+
+        var attributes = resetEntityManager is { HasBody: true }
+                         && CallsLoader(resetEntityManager, LoaderTypeName, LoaderMethodName);
+
+        var commanderBuffs = type.NestedTypes
+            .SelectMany(t => t.Methods)
+            .Any(m => m.Name == "MoveNext" && m.HasBody
+                      && CallsLoader(m, BuffLoaderTypeName, BuffLoaderMethodName));
+
+        return new Hooks(attributes, commanderBuffs);
     }
+
+    private static bool CallsLoader(MethodDefinition method, string typeFullName, string methodName) =>
+        method.Body.Instructions.Any(
+            i => i.Operand is MethodReference mr
+                 && mr.Name == methodName
+                 && mr.DeclaringType?.FullName == typeFullName);
 
     // -------------------------------------------------------------- restore
 

@@ -18,11 +18,20 @@ namespace Subsystem
         // For weapons, the interesting question is "what can this thing actually shoot, and does
         // it do so on its own" -- which is the auto-fire flags plus the per-target-class
         // modifiers, not the damage numbers.
-        private static string DescribeWeapon(WeaponAttributes weapon)
+        private static string DescribeWeapon(WeaponAttributes weapon, WeaponBinding[] loadout)
         {
             if (weapon == null) { return ""; }
 
             var sb = new StringBuilder();
+
+            // Commander buffs on UnitWeapon_* and WeaponRange_* key on the loadout's WeaponID,
+            // which is not always the weapon's own name -- the name above is what the
+            // "Entities" section keys on. Print both so they are not confused.
+            var weaponID = FindWeaponID(weapon, loadout);
+            if (weaponID != null)
+            {
+                sb.AppendFormat("        weapon ID (for commander buffs): {0}\n", weaponID);
+            }
 
             sb.AppendFormat("        auto-acquire: {0}   auto-fire: {1}   damage: {2}   cooldown: {3}ms\n",
                 weapon.ExcludeFromAutoTargetAcquisition ? "no" : "yes",
@@ -55,6 +64,21 @@ namespace Subsystem
             }
 
             return sb.ToString();
+        }
+
+        private static string FindWeaponID(WeaponAttributes weapon, WeaponBinding[] loadout)
+        {
+            if (loadout == null) { return null; }
+
+            foreach (var binding in loadout)
+            {
+                if (binding != null && binding.Weapon != null && binding.Weapon.Name == weapon.Name)
+                {
+                    return binding.WeaponID;
+                }
+            }
+
+            return null;
         }
 
         public static void Dump(EntityTypeCollection entityTypeCollection, TextWriter writer)
@@ -92,6 +116,9 @@ namespace Subsystem
                     continue;
                 }
 
+                var unitAttributes = entityType.Get<UnitAttributes>();
+                var loadout = unitAttributes != null ? unitAttributes.WeaponLoadout : null;
+
                 var entries = new List<KeyValuePair<string, string>>();
                 foreach (var component in components)
                 {
@@ -104,7 +131,7 @@ namespace Subsystem
                         ? string.Format("    {0}: {1}", typeName, named.Name)
                         : string.Format("    {0}", typeName);
 
-                    entries.Add(new KeyValuePair<string, string>(header, DescribeWeapon(component as WeaponAttributes)));
+                    entries.Add(new KeyValuePair<string, string>(header, DescribeWeapon(component as WeaponAttributes, loadout)));
                 }
 
                 entries.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
