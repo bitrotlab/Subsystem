@@ -66,6 +66,58 @@ namespace Subsystem
             return sb.ToString();
         }
 
+        // Regen, repair and the rest of the interesting abilities are all AbilityClass plus one
+        // populated sub-attribute, so the type alone does not tell you what an ability does.
+        // Passive self-repair, for instance, is ApplyStatusEffect + autocast-on-spawn pointing
+        // at a status effect whose modifier carries the heal rate.
+        private static string DescribeAbility(AbilityAttributes ability)
+        {
+            if (ability == null) { return ""; }
+
+            var sb = new StringBuilder();
+
+            sb.AppendFormat("        type: {0}", ability.AbilityType);
+
+            if (ability.Autocast != null && ability.Autocast.IsAutocastable)
+            {
+                sb.AppendFormat("   autocast: yes (on spawn: {0})", ability.Autocast.AutocastEnabledOnSpawn ? "yes" : "no");
+            }
+
+            if (ability.IsToggleable) { sb.Append("   toggleable"); }
+
+            sb.AppendFormat("   cooldown: {0}s   warmup: {1}s\n", ability.CooldownTimeSecs, ability.WarmupTimeSecs);
+
+            if (ability.Repair != null && !string.IsNullOrEmpty(ability.Repair.WeaponID))
+            {
+                sb.AppendFormat("        repairs with weapon ID: {0}\n", ability.Repair.WeaponID);
+            }
+
+            var apply = ability.ApplyStatusEffect;
+            if (apply == null || apply.StatusEffectsToApply == null) { return sb.ToString(); }
+
+            foreach (var effect in apply.StatusEffectsToApply)
+            {
+                if (effect == null) { continue; }
+
+                sb.AppendFormat("        applies status effect: {0}   lifetime: {1}   duration: {2}   maxStacks: {3}\n",
+                    effect.Name, effect.Lifetime, effect.Duration, effect.MaxStacks);
+
+                if (effect.Modifiers == null) { continue; }
+
+                foreach (var modifier in effect.Modifiers)
+                {
+                    var healthOverTime = modifier.HealthOverTimeAttributes;
+                    if (healthOverTime.Amount == 0) { continue; }
+
+                    sb.AppendFormat("            health over time: {0} per {1}ms, {2}, id \"{3}\"\n",
+                        healthOverTime.Amount, healthOverTime.MSTickDuration,
+                        healthOverTime.DamageType, healthOverTime.ID);
+                }
+            }
+
+            return sb.ToString();
+        }
+
         private static string FindWeaponID(WeaponAttributes weapon, WeaponBinding[] loadout)
         {
             if (loadout == null) { return null; }
@@ -131,7 +183,10 @@ namespace Subsystem
                         ? string.Format("    {0}: {1}", typeName, named.Name)
                         : string.Format("    {0}", typeName);
 
-                    entries.Add(new KeyValuePair<string, string>(header, DescribeWeapon(component as WeaponAttributes, loadout)));
+                    var detail = DescribeWeapon(component as WeaponAttributes, loadout)
+                               + DescribeAbility(component as AbilityAttributes);
+
+                    entries.Add(new KeyValuePair<string, string>(header, detail));
                 }
 
                 entries.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
