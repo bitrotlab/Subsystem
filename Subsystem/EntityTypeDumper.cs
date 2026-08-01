@@ -76,7 +76,10 @@ namespace Subsystem
 
             var sb = new StringBuilder();
 
-            sb.AppendFormat("        type: {0}", ability.AbilityType);
+            // TargetingType Passive is what makes UnitManager.ActivatePassiveAbilities fire an
+            // ability on spawn without the player casting it, so it is the flag that separates
+            // "heals by itself" from "there is a button somewhere".
+            sb.AppendFormat("        type: {0}   targeting: {1}", ability.AbilityType, ability.TargetingType);
 
             if (ability.Autocast != null && ability.Autocast.IsAutocastable)
             {
