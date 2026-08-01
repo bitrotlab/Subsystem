@@ -225,14 +225,28 @@ namespace Subsystem
         private void applyListPatch<TPatch, TWrapper>(Dictionary<string, TPatch> patch, List<TWrapper> wrappers, Func<TWrapper> createWrapper, Action<TPatch, TWrapper> applyPatch, string elementName)
             where TWrapper : class
         {
-            foreach (var kvp in patch.OrderBy(x => x.Key))
+            // Sort by the numeric index, not by the key string. Ordinal order puts "10" between
+            // "1" and "2", so any list with more than ten entries used to hit the
+            // non-consecutive-index check at "10" and silently drop everything from there on.
+            var ordered = new List<KeyValuePair<int, TPatch>>();
+
+            foreach (var kvp in patch)
             {
-                if (!int.TryParse(kvp.Key, out var index))
+                if (!int.TryParse(kvp.Key, out var parsed))
                 {
                     logger.Log($"ERROR: Non-integer key: {kvp.Key}");
+                    ordered.Clear();
                     break;
                 }
 
+                ordered.Add(new KeyValuePair<int, TPatch>(parsed, kvp.Value));
+            }
+
+            ordered.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+            foreach (var kvp in ordered)
+            {
+                var index = kvp.Key;
                 var elementPatch = kvp.Value;
 
                 using (logger.BeginScope($"{elementName}: {index}"))
